@@ -18,7 +18,7 @@ download_folder = "captcha_raw"
 os.makedirs(download_folder, exist_ok=True)
 
 # 最大允許連續重複次數
-MAX_REPEAT = 5
+MAX_REPEAT = 100
 repeat_count = 0
 
 while True:
