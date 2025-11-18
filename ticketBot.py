@@ -13,6 +13,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoAlertPresentException
 
 # --- 全域變數初始化 ---
 # 【步驟 1】匯入您的 AI 核心
@@ -84,74 +85,87 @@ def perform_purchase(target_seat_area: str, quantity: int, k_value: int):
 
         # 圖片 3: 點擊目標座位區 (使用 target_seat_area)
         print(f"...[3/7] 等待並點擊座位區 '{target_seat_area}'...")
-        seat_xpath = f"//div[@class='seat-item' and contains(., '{target_seat_area}')]"
+        # seat_xpath = f"//div[@class='seat-item' and contains(., '{target_seat_area}')]"
+        seat_xpath = f"//div[@class='seat-item']"
         WebDriverWait(driver, 15).until( # 增加等待時間
             EC.element_to_be_clickable((By.XPATH, seat_xpath))
         ).click()
 
-        # 圖片 4: 選擇票數 (使用 quantity)
-        print(f"...[4/7] 等待並選擇票數 '{quantity}'...")
-        quantity_select_el = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.NAME, "quantity"))
-        )
-        Select(quantity_select_el).select_by_visible_text(str(quantity))
 
-        # 圖片 5: 勾選 "同意條款" (id="terms-checkbox")
-        print("...[5/7] 等待並勾選 '同意條款'...")
-        terms_checkbox = WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.ID, "terms-checkbox"))
-        )
-        driver.execute_script("arguments[0].click();", terms_checkbox) # 使用 JavaScript 點擊，可避免元素被遮擋導致點擊失敗
-        print("...已勾選 '同意條款'...")
-
-        # -----------------------------------------------------
-        # 【步驟 6: 破解驗證碼】
-        # -----------------------------------------------------
+        
         print("...[6/7] 正在處理驗證碼...")
-        captcha_image_bytes = None
-        try:
-            captcha_element = WebDriverWait(driver, 20).until( # 增加等待時間
-                 EC.presence_of_element_located((By.ID, "captcha-image"))
+        while(True):
+            # 圖片 4: 選擇票數 (使用 quantity)
+            print(f"...[4/7] 等待並選擇票數 '{quantity}'...")
+            quantity_select_el = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.NAME, "quantity"))
             )
-            image_url = captcha_element.get_attribute("src")
-            
-            http_session = requests.Session()
-            all_cookies = driver.get_cookies()
-            for cookie in all_cookies:
-                http_session.cookies.set(cookie['name'], cookie['value'])
-                
-            response = http_session.get(image_url)
-            
-            if response.status_code == 200:
-                captcha_image_bytes = response.content
-                print("✅ 驗證碼圖片已透過 requests 下載。")
-            else:
-                print(f"❌ 下載驗證碼圖片失敗，狀態碼: {response.status_code}")
+            Select(quantity_select_el).select_by_visible_text(str(quantity))
 
-        except Exception as e:
-            print(f"❌ 獲取驗證碼網址或下載時失敗: {e}")
+            # 圖片 5: 勾選 "同意條款" (id="terms-checkbox")
+            print("...[5/7] 等待並勾選 '同意條款'...")
+            terms_checkbox = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.ID, "terms-checkbox"))
+            )
+            driver.execute_script("arguments[0].click();", terms_checkbox) # 使用 JavaScript 點擊，可避免元素被遮擋導致點擊失敗
+            print("...已勾選 '同意條款'...")
+            # -----------------------------------------------------
+            # 【步驟 6: 破解驗證碼】
+            # -----------------------------------------------------
+            captcha_image_bytes = None
+            try:
+                captcha_element = WebDriverWait(driver, 20).until( # 增加等待時間
+                    EC.presence_of_element_located((By.ID, "captcha-image"))
+                )
+                image_url = captcha_element.get_attribute("src")
+                
+                http_session = requests.Session()
+                all_cookies = driver.get_cookies()
+                for cookie in all_cookies:
+                    http_session.cookies.set(cookie['name'], cookie['value'])
+                    
+                response = http_session.get(image_url)
+                
+                if response.status_code == 200:
+                    captcha_image_bytes = response.content
+                    print("✅ 驗證碼圖片已透過 requests 下載。")
+                else:
+                    print(f"❌ 下載驗證碼圖片失敗，狀態碼: {response.status_code}")
 
-        # 如果成功取得圖片，就呼叫 AI
-        if captcha_image_bytes and ai_core:
-            print("...正在呼叫 AI 核心進行辨識...")
-            captcha_answer = ai_core.crack_captcha(image_bytes=captcha_image_bytes, k_value=k_value)
-            
-            if "FAIL" not in captcha_answer and "EMPTY" not in captcha_answer and "MODEL" not in captcha_answer:
-                print(f"🤖 AI 辨識結果: {captcha_answer}")
-                driver.find_element(By.ID, "captcha-input").send_keys(captcha_answer)
-                print("✅ 驗證碼已填入。")
+            except Exception as e:
+                print(f"❌ 獲取驗證碼網址或下載時失敗: {e}")
+
+            # 如果成功取得圖片，就呼叫 AI
+            if captcha_image_bytes and ai_core:
+                print("...正在呼叫 AI 核心進行辨識...")
                 
-                # 圖片 7: 點擊 "確認張數" (class="btn confirm-btn")
-                print("...[7/7] 點擊 '確認張數' 送出...")
-                WebDriverWait(driver, 15).until( # 增加等待時間
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button.btn.confirm-btn"))
-                ).click()
-                print("✅ 已點擊 '確認張數'。流程結束。")
+                captcha_answer = ai_core.crack_captcha(image_bytes=captcha_image_bytes, k_value=k_value)
                 
+                if "FAIL" not in captcha_answer and "EMPTY" not in captcha_answer and "MODEL" not in captcha_answer:
+                    print(f"🤖 AI 辨識結果: {captcha_answer}")
+                    driver.find_element(By.ID, "captcha-input").send_keys(captcha_answer)
+                    print("✅ 驗證碼已填入。")  
+                else:
+                    print(f"❌ AI 辨識失敗，結果: {captcha_answer}")
             else:
-                print(f"❌ AI 辨識失敗，結果: {captcha_answer}")
-        else:
-            print("❌ 未能取得驗證碼圖片或 AI 核心載入失敗，無法繼續。")
+                print("❌ 未能取得驗證碼圖片或 AI 核心載入失敗，無法繼續。")
+        
+            # 圖片 7: 點擊 "確認張數" (class="btn confirm-btn")
+            print("...[7/7] 點擊 '確認張數' 送出...")
+            WebDriverWait(driver, 15).until( # 增加等待時間
+                EC.element_to_be_clickable((By.CSS_SELECTOR, "button.btn.confirm-btn"))
+            ).click()
+            print("✅ 已點擊 '確認張數'。")
+            
+            try:
+                alert = driver.switch_to.alert
+                if alert.text == "您所輸入的驗證碼不正確，請重新輸入":
+                    print("驗證碼錯誤")
+                    alert.accept()   
+                    continue
+            except NoAlertPresentException:
+                print("驗證碼正確")
+                break
 
     except Exception as e:
         print(f"\n❌ 搶票流程執行時發生未預期的錯誤: {e}")
