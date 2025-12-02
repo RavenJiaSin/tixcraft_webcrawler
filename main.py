@@ -3,6 +3,7 @@ import time
 import os
 import subprocess  # [新增] 用來執行外部檔案
 from PyQt6 import QtWidgets, QtCore
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QPushButton, QTextEdit, QGroupBox, QSpinBox
@@ -64,8 +65,71 @@ class TicketApp(QWidget):
         self.resize(700, 550)
         self._build_ui()
 
+    def _load_area_csv(self):
+        """讀取 ticket_log.csv 並載入至拖曳列表"""
+        csv_file = "ticket_log.csv"
+
+        if not os.path.exists(csv_file):
+            self._log("⚠ 找不到 ticket_log.csv，請確認是否已建立。")
+            return
+
+        import csv
+        with open(csv_file, "r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            next(reader, None)  # 跳過 header
+
+            for row in reader:
+                if len(row) >= 2:
+                    area = row[0]
+                    tickets = row[1]
+                    self.list_areas.addItem(f"{area}  |  剩餘票數: {tickets}")
+
+    def _save_area_order(self):
+        """將目前排序的區域資訊寫回 CSV 檔"""
+        csv_file = os.path.join(os.path.dirname(__file__), "ticket_log.csv")
+
+        items = []
+        for i in range(self.list_areas.count()):
+            text = self.list_areas.item(i).text()
+
+            # 預期格式:  "A區  |  剩餘票數: 50"
+            try:
+                area, rest = text.split("|")
+                area = area.strip()
+                tickets = rest.replace("剩餘票數:", "").strip()
+                items.append((area, tickets))
+            except Exception:
+                continue
+
+        # 寫回 CSV
+        try:
+            import csv
+            with open(csv_file, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                # 寫入 header
+                writer.writerow(["area", "tickets"])
+                for area, tickets in items:
+                    writer.writerow([area, tickets])
+
+            self._log("✅ 區域志願排序已儲存。")
+
+        except Exception as e:
+            self._log(f"❌ 儲存排序失敗: {e}")
+
+
+
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        # --- 主框架：三欄式 ---
+        layout = QHBoxLayout(self)
+
+        # 左、中、右欄
+        left_col = QVBoxLayout()
+        center_col = QVBoxLayout()
+        right_col = QVBoxLayout()
+
+        # -----------------------------------------------------
+        # 左欄：區塊 1～3
+        # -----------------------------------------------------
 
         # --- 區塊 1: 瀏覽器初始化 ---
         group_init = QGroupBox("1. 瀏覽器初始化")
@@ -76,33 +140,30 @@ class TicketApp(QWidget):
         self.btn_browser.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
         layout_init.addWidget(self.btn_browser)
         
-        lbl_note = QLabel("⚠️ 啟動後請手動登入拓元帳號，並保持瀏覽器開啟")
+        lbl_note = QLabel("啟動後請登入拓元帳號")
         lbl_note.setStyleSheet("color: red;")
         layout_init.addWidget(lbl_note)
         
         group_init.setLayout(layout_init)
-        layout.addWidget(group_init)
+        left_col.addWidget(group_init)
 
         # --- 區塊 2: 監控設定 ---
         group_settings = QGroupBox("2. 監控設定")
         layout_settings = QVBoxLayout()
 
-        # 網址
-        layout_settings.addWidget(QLabel("監控網址 (區域選擇頁面):"))
+        layout_settings.addWidget(QLabel("監控網址:"))
         self.input_url = QLineEdit()
         if hasattr(config, 'MONITOR_URL'):
             self.input_url.setText(config.MONITOR_URL)
         layout_settings.addWidget(self.input_url)
 
-        # 關鍵字
-        layout_settings.addWidget(QLabel("區域關鍵字 (逗號分隔，留空代表全搶):"))
+        layout_settings.addWidget(QLabel("區域關鍵字 (逗號分隔):"))
         self.input_keywords = QLineEdit()
         if hasattr(config, 'TARGET_AREAS'):
             self.input_keywords.setText(",".join(config.TARGET_AREAS))
         layout_settings.addWidget(self.input_keywords)
-        
-        # 張數 (這裡僅作顯示，實際張數設定在 ticketBot.py 或 config 中)
-        layout_settings.addWidget(QLabel("購買張數 (將傳遞給搶票程式):"))
+
+        layout_settings.addWidget(QLabel("購買張數:"))
         self.spin_quantity = QSpinBox()
         self.spin_quantity.setRange(1, 4)
         if hasattr(config, 'QUANTITY'):
@@ -110,7 +171,7 @@ class TicketApp(QWidget):
         layout_settings.addWidget(self.spin_quantity)
 
         group_settings.setLayout(layout_settings)
-        layout.addWidget(group_settings)
+        left_col.addWidget(group_settings)
 
         # --- 區塊 3: 控制面板 ---
         group_ctrl = QGroupBox("3. 執行控制")
@@ -118,7 +179,7 @@ class TicketApp(QWidget):
         
         self.btn_start = QPushButton("開始監控")
         self.btn_start.clicked.connect(self._on_start_monitor)
-        self.btn_start.setEnabled(False) # 需先開瀏覽器
+        self.btn_start.setEnabled(False)
         
         self.btn_stop = QPushButton("停止監控")
         self.btn_stop.clicked.connect(self._on_stop_monitor)
@@ -127,13 +188,50 @@ class TicketApp(QWidget):
         layout_ctrl.addWidget(self.btn_start)
         layout_ctrl.addWidget(self.btn_stop)
         group_ctrl.setLayout(layout_ctrl)
-        layout.addWidget(group_ctrl)
+        left_col.addWidget(group_ctrl)
 
-        # --- 區塊 4: 系統日誌 ---
-        layout.addWidget(QLabel("系統日誌:"))
+        layout.addLayout(left_col)
+
+
+        # -----------------------------------------------------
+        # 中欄：區塊 4
+        # -----------------------------------------------------
+
+        group_priority = QGroupBox("4. 志願排序")
+        layout_priority = QVBoxLayout()
+
+        self.list_areas = QtWidgets.QListWidget()
+        self.list_areas.setDragDropMode(QtWidgets.QAbstractItemView.DragDropMode.InternalMove)
+        self.list_areas.setDefaultDropAction(Qt.DropAction.MoveAction)
+
+        layout_priority.addWidget(QLabel("請拖曳調整志願順序（上方為第一志願）"))
+        layout_priority.addWidget(self.list_areas)
+
+        self.btn_save_order = QPushButton("儲存排序")
+        self.btn_save_order.clicked.connect(self._save_area_order)
+        layout_priority.addWidget(self.btn_save_order)
+
+        group_priority.setLayout(layout_priority)
+        center_col.addWidget(group_priority)
+
+        layout.addLayout(center_col)
+
+        # 初始化 ticket_log.csv
+        self._load_area_csv()
+
+
+        # -----------------------------------------------------
+        # 右欄：系統日誌
+        # -----------------------------------------------------
+
+        right_col.addWidget(QLabel("系統日誌："))
+
         self.log_box = QTextEdit()
         self.log_box.setReadOnly(True)
-        layout.addWidget(self.log_box)
+        right_col.addWidget(self.log_box)
+
+        layout.addLayout(right_col)
+
 
     def _log(self, msg):
         self.log_box.append(msg)
