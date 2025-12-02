@@ -1,5 +1,6 @@
 import os
 import time
+import csv
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -17,7 +18,7 @@ class TixCraftMonitor:
         self.driver = None
 
     def start_driver(self):
-        """啟動瀏覽器 (與大神代碼參數一致)"""
+        """啟動瀏覽器 """
         if self.driver is not None: return self.driver
 
         print("🔴 [系統] 啟動瀏覽器 (Undetected Mode)...")
@@ -70,13 +71,15 @@ class TixCraftMonitor:
 
     def scan_for_tickets(self, target_keywords: list) -> str:
         """
-        暴力掃描頁面上的所有可點擊元素，尋找票券
+        暴力掃描頁面上的所有可點擊元素，尋找票券，並將結果存檔 (CSV - 只存區域名稱與張數)
         """
         if not self.driver: return None
 
+        # 雖然 CSV 不存時間，但螢幕顯示還是需要時間方便您看
+        current_time = time.strftime('%Y-%m-%d %H:%M:%S')
         print(f"\n🔍 [掃描] {time.strftime('%H:%M:%S')} | URL: {self.driver.current_url}")
 
-        # 1. 檢查是否還在首頁，如果是，嘗試點「立即購票」
+        # 1. 檢查是否還在首頁 (略，保持原樣)
         if "ticket/area" not in self.driver.current_url:
             try:
                 buy_btns = self.driver.find_elements(By.XPATH, "//*[contains(text(), '立即購票') or contains(text(), 'Buy Ticket')]")
@@ -89,57 +92,86 @@ class TixCraftMonitor:
             except: pass
 
         # 2. 抓取所有可能的區域按鈕
-        # 策略：抓取所有在 .zone 裡面的連結，或是所有包含 "區" / "元" 的按鈕
         try:
-            # 優先抓標準結構
             buttons = self.driver.find_elements(By.CSS_SELECTOR, ".zone .area-list a")
-            
-            # 備用：抓取所有看起來像區域按鈕的東西
             if not buttons:
                 buttons = self.driver.find_elements(By.CSS_SELECTOR, "ul.area-list li a")
             
             print(f"   -> 找到 {len(buttons)} 個區域按鈕")
 
             if len(buttons) == 0:
-                # 截取網頁部分內容除錯
                 body_text = self.driver.find_element(By.TAG_NAME, "body").text[:100].replace('\n', ' ')
                 print(f"   -> ❌ 異常：找不到任何按鈕。頁面文字預覽: {body_text}...")
                 return None
-
-            # 3. 逐一檢查
-            for btn in buttons:
-                text = btn.text.strip().replace("\n", " ")
-                if not text: continue # 跳過空按鈕
-
-                # 狀態檢查
-                class_attr = btn.get_attribute("class") or ""
-                is_disabled = "disabled" in class_attr or not btn.is_enabled()
+            
+            # --- [CSV 寫入邏輯] ---
+            log_file = "ticket_log.csv"
+            file_exists = os.path.isfile(log_file)
+            
+            # 使用 with 開啟檔案
+            with open(log_file, mode='a', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
                 
-                status_msg = "🔴 鎖定" if is_disabled else "🟢 可買"
-                
-                # 關鍵字排除
-                if any(x in text for x in ["已售完", "選購一空", "Sold out", "暫停販售"]):
-                    status_msg = "⚫ 售完"
+                # [修改 1] 標題欄只留兩項
+                if not file_exists:
+                    writer.writerow(["區域名稱", "剩餘張數"])
+            
+                # 3. 逐一檢查
+                for btn in buttons:
+                    text = btn.text.strip().replace("\n", " ")
+                    if not text: continue 
 
-                print(f"   -> [{text}] : {status_msg}")
+                    # [解析文字] 拆分區域名稱與張數
+                    area_name = text
+                    ticket_count = "N/A" # 預設值
 
-                # 4. 判斷是否搶票
-                if "可買" in status_msg:
-                    # 如果有關鍵字篩選
-                    if target_keywords:
-                        if not any(k in text for k in target_keywords):
-                            continue
+                    if "剩餘" in text:
+                        try:
+                            # 範例: "紅218區 剩餘 12" -> 切割
+                            parts = text.split("剩餘")
+                            area_name = parts[0].strip()
+                            ticket_count = parts[1].strip()
+                        except:
+                            pass 
+                    elif "售完" in text or "Sold out" in text:
+                        ticket_count = "0"
+
+                    # 狀態檢查 (僅用於判斷是否要搶票，不寫入 CSV)
+                    class_attr = btn.get_attribute("class") or ""
+                    is_disabled = "disabled" in class_attr or not btn.is_enabled()
+                    status_msg = "🔴 鎖定" if is_disabled else "🟢 可買"
                     
-                    print(f"🔥🔥🔥 [鎖定目標] 發現票券：{text}")
-                    # 直接點擊！
-                    try:
-                        self.driver.execute_script("arguments[0].click();", btn)
-                    except:
-                        btn.click()
-                    return text
+                    if any(x in text for x in ["已售完", "選購一空", "Sold out", "暫停販售"]):
+                        status_msg = "⚫ 售完"
+
+                    # [修改 2] 只寫入兩個欄位
+                    writer.writerow([area_name, ticket_count])
+
+                    # 螢幕上還是顯示完整資訊比較好除錯
+                    print(f"   -> [{area_name}] 剩餘: {ticket_count} | {status_msg}")
+
+                    # 4. 判斷是否搶票
+                    if "可買" in status_msg:
+                        if target_keywords:
+                            if not any(k in text for k in target_keywords):
+                                continue
+                        
+                        print(f"🔥🔥🔥 [鎖定目標] 發現票券：{area_name}")
+                        
+                        # 成功紀錄維持詳細版 (建議保留時間)
+                        with open("success_log.txt", "a", encoding="utf-8") as sf:
+                            sf.write(f"[{current_time}] 觸發點擊: {area_name} ({ticket_count}張)\n")
+
+                        try:
+                            self.driver.execute_script("arguments[0].click();", btn)
+                        except:
+                            btn.click()
+                        return text
 
         except Exception as e:
             print(f"❌ [掃描錯誤] {e}")
+            import traceback
+            traceback.print_exc()
 
         return None
 
