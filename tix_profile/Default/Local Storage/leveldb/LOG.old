@@ -1,5 +1,3 @@
-2025/12/02-19:37:37.719 1dd0 Reusing MANIFEST D:\NCU\G4th\AIproject\workspace\tixcraft_webcrawler\tix_profile\Default\Local Storage\leveldb/MANIFEST-000001
-2025/12/02-19:37:37.725 1dd0 Recovering log #3
-2025/12/02-19:37:37.726 1dd0 Level-0 table #3: started
-2025/12/02-19:37:37.731 1dd0 Level-0 table #3: 35682 bytes OK
-2025/12/02-19:37:37.739 1dd0 Delete type=0 #3
+2025/12/02-19:42:26.246 7540 Reusing MANIFEST D:\NCU\G4th\AIproject\workspace\tixcraft_webcrawler\tix_profile\Default\Local Storage\leveldb/MANIFEST-000001
+2025/12/02-19:42:26.254 7540 Recovering log #4
+2025/12/02-19:42:26.256 7540 Reusing old log D:\NCU\G4th\AIproject\workspace\tixcraft_webcrawler\tix_profile\Default\Local Storage\leveldb/000004.log 
